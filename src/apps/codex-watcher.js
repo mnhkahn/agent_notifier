@@ -14,7 +14,7 @@ const POLL_MS = 1500;
 
 /** 根据 pts 编号解析注入目标：FIFO 优先，否则使用裸 pts */
 function resolvePtsTarget(ptsNum) {
-    const fifoPath = `/tmp/claude-inject-pts${ptsNum}`;
+    const fifoPath = `/tmp/agent-inject-pts${ptsNum}`;
     try {
         if (fs.statSync(fifoPath).isFIFO()) return `fifo:${fifoPath}`;
     } catch {}

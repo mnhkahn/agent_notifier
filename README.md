@@ -84,21 +84,9 @@ git clone <repo-url>
 cd claude-notifier
 ```
 
-### 2. 一键安装
+### 2. 配置飞书应用
 
-```bash
-bash install.sh
-```
-
-安装脚本会自动完成：
-- 安装 Node.js 依赖
-- 从 `.env.example` 创建 `.env`
-- 写入 Claude Code hooks 到 `~/.claude/settings.json`
-- 注入 `claude` / `codex` shell 包装函数
-
-### 3. 配置飞书应用
-
-编辑 `.env`：
+编辑 `.env`（首次安装会自动从 `.env.example` 创建）：
 
 ```bash
 FEISHU_APP_ID=your_app_id_here
@@ -106,25 +94,82 @@ FEISHU_APP_SECRET=your_app_secret_here
 # FEISHU_CHAT_ID=
 ```
 
-### 4. 启动飞书监听器
+### 3. 一键安装
 
 ```bash
-npm run feishu-listener:start
+bash install.sh
 ```
 
-### 5. 重新加载 shell
+安装脚本会自动完成：
+- 检查依赖（Node.js、npm、python3）
+- **清理旧配置**（自动调用 `uninstall.sh`）
+- 安装 Node.js 依赖
+- 从 `.env.example` 创建 `.env`（如不存在）
+- 写入 Claude Code hooks 到 `~/.claude/settings.json`
+- 注入 `claude` / `codex` shell 包装函数
+- **自动启动飞书监听器并注册开机自启**
+
+> 重复运行 `install.sh` 是安全的 — 每次会先清理再重新安装。
+
+### 4. 重新加载 shell
 
 ```bash
 source ~/.zshrc
 # 或 source ~/.bashrc
 ```
 
-### 6. 开始使用
+### 5. 开始使用
 
 ```bash
 claude
 # 或
 codex
+```
+
+---
+
+## 卸载
+
+```bash
+bash uninstall.sh
+```
+
+卸载脚本会清理：
+- 停止并移除飞书监听器服务（launchd / systemd / crontab）
+- 终止后台进程（feishu-listener、codex-watcher、codex-session-watcher、pty-relay）
+- 从 `~/.claude/settings.json` 移除 hooks
+- 从 `~/.zshrc` / `~/.bashrc` 移除 shell 函数注入
+- 清理运行时文件（session-state、pid、log、/tmp 缓冲文件）
+
+> `.env` 和 `node_modules/` 会保留，如需完全清除请手动删除。
+
+---
+
+## 跨平台支持
+
+| 平台 | 服务管理方式 | 开机自启 |
+|------|------------|---------|
+| macOS | launchd (`~/Library/LaunchAgents/`) | `RunAtLoad` + `KeepAlive` |
+| Linux (有 systemd user session) | systemd user service | `systemctl --user enable` |
+| Linux (无 systemd，如纯 SSH) | nohup + crontab `@reboot` | crontab 回退方案 |
+
+### 服务管理命令
+
+**macOS:**
+```bash
+# 查看状态
+launchctl print gui/$(id -u)/com.agent-notifier.feishu-listener
+# 停止
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.agent-notifier.feishu-listener.plist
+# 启动
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agent-notifier.feishu-listener.plist
+```
+
+**Linux (systemd):**
+```bash
+systemctl --user status agent-notifier-feishu
+systemctl --user restart agent-notifier-feishu
+journalctl --user -u agent-notifier-feishu -f
 ```
 
 ---
@@ -273,12 +318,19 @@ CLAUDE_TMUX_TARGET=claude:0.0
 
 ## 常用命令
 
-### 飞书监听器
+### 安装 / 卸载
 
 ```bash
-npm run feishu-listener
-npm run feishu-listener:start
-npm run feishu-listener:stop
+bash install.sh      # 安装（自动清理旧配置 → 重新安装）
+bash uninstall.sh    # 卸载（停止服务 → 清理配置）
+```
+
+### 飞书监听器（手动管理）
+
+```bash
+npm run feishu-listener         # 前台运行
+npm run feishu-listener:start   # nohup 后台启动
+npm run feishu-listener:stop    # 停止后台进程
 ```
 
 ### Codex 相关

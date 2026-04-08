@@ -16,7 +16,7 @@ PTY 代理中继 — 非 tmux 环境下的终端输入注入方案
     1. 创建 pty pair (master/slave)
     2. 在 slave 端启动 shell，relay 持有 master fd
     3. 代理终端 <-> pty master 的所有 I/O
-    4. 创建 FIFO: /tmp/claude-inject-pts{N}，监听注入指令
+    4. 创建 FIFO: /tmp/agent-inject-pts{N}，监听注入指令
     5. 收到注入指令后写入 master fd = 等效键盘输入
 
 可直接配合现有 hook-handler / feishu-listener 使用，
@@ -87,7 +87,7 @@ def main():
         cmd = [shell, '-i']
 
     if not os.isatty(0):
-        print('[pty-relay] 请在终端中运行此脚本', file=sys.stderr)
+        print('[pty-relay] 请在终端中运行此脚本（需要 TTY 环境）', file=sys.stderr)
         sys.exit(1)
 
     # 保存原始终端设置
@@ -103,16 +103,15 @@ def main():
     set_winsize(slave_fd, rows, cols)
 
     # 创建 FIFO
-    fifo_path = f'/tmp/claude-inject-pts{pts_num}'
+    fifo_path = f'/tmp/agent-inject-pts{pts_num}'
     try:
         os.unlink(fifo_path)
     except FileNotFoundError:
         pass
     os.mkfifo(fifo_path)
-
-    print(f'[pty-relay] 终端代理已启动', file=sys.stderr)
-    print(f'[pty-relay] 代理终端: {slave_name}', file=sys.stderr)
-    print(f'[pty-relay] FIFO: {fifo_path}', file=sys.stderr)
+    print(f'\r\033[36m⚡ [AGENT_NOTIFIER]\033[0m PTY relay active', file=sys.stderr)
+    print(f'  \033[90m├─ pty:  {slave_name}\033[0m', file=sys.stderr)
+    print(f'  \033[90m└─ fifo: {fifo_path}\033[0m', file=sys.stderr)
 
     # Fork 子进程运行 shell
     pid = os.fork()
@@ -405,7 +404,7 @@ def main():
             os.waitpid(pid, 0)
         except Exception:
             pass
-        print('\r[pty-relay] 已停止', file=sys.stderr)
+        print('\r\033[36m⚡ [AGENT_NOTIFIER]\033[0m PTY relay stopped', file=sys.stderr)
 
 
 if __name__ == '__main__':

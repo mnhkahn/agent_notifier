@@ -36,7 +36,7 @@ test('single-select card maps second option to ArrowDown plus Enter', async () =
       ],
     },
     'state-single',
-    'fifo:/tmp/claude-inject-pts7',
+    'fifo:/tmp/agent-inject-pts7',
     'session-1',
     'AskUserQuestion',
     'footer'
@@ -93,7 +93,7 @@ test('multi-question first card maps second option to ArrowDown plus Enter', asy
       },
     ],
     'state-multi',
-    'fifo:/tmp/claude-inject-pts7',
+    'fifo:/tmp/agent-inject-pts7',
     'session-1',
     'AskUserQuestion',
     'footer'

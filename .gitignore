@@ -49,6 +49,5 @@ coverage/
 __pycache__/
 
 docs/*
-!docs/ai_docs/
-!docs/ai_docs/**
+!docs/images
 !docs/ai_rules.md

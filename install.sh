@@ -54,6 +54,15 @@ fi
 
 echo ""
 
+# ── 1.5 预清理：先卸载旧配置 ────────────────────────────
+if [ -f "$INSTALL_DIR/uninstall.sh" ]; then
+    info "正在清理旧配置..."
+    bash "$INSTALL_DIR/uninstall.sh" 2>/dev/null || true
+    echo ""
+    info "旧配置已清理，开始重新安装..."
+    echo ""
+fi
+
 # ── 2. 安装 npm 依赖 ─────────────────────────────────────
 info "正在安装 npm 依赖..."
 cd "$INSTALL_DIR"
@@ -187,7 +196,7 @@ AGENT_FUNCS=$(cat <<'EOF'
 # ── Claude Code PTY 中继（由 claude-notifier 安装脚本注入） ──
 claude() {
     if [[ -z "$TMUX" && -z "$PTY_RELAY_ACTIVE" ]]; then
-        PTY_RELAY_ACTIVE=1 python3 __INSTALL_DIR__/pty-relay.py $(which claude) "$@"
+        PTY_RELAY_ACTIVE=1 python3 __INSTALL_DIR__/pty-relay.py "$(whence -p claude 2>/dev/null || type -P claude 2>/dev/null || which claude)" "$@"
     else
         command claude "$@"
     fi
@@ -220,23 +229,116 @@ fi
 
 echo ""
 
-# ── 6. 询问是否启动飞书监听器 ────────────────────────────
+# ── 6. 配置并启动飞书监听器服务 ──────────────────────────
+info "正在配置飞书监听器服务..."
+
+FEISHU_APP_ID=""
 if [ -f "$INSTALL_DIR/.env" ]; then
-    # 检查 .env 中是否配置了有效的 FEISHU_APP_ID
     FEISHU_APP_ID=$(grep -E '^FEISHU_APP_ID=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
-    if [ -n "$FEISHU_APP_ID" ] && [ "$FEISHU_APP_ID" != "your_app_id_here" ]; then
-        echo ""
-        read -rp "$(echo -e "${BLUE}[询问]${NC}") 检测到飞书应用配置，是否启动飞书监听器？(y/N) " start_feishu
-        if [[ "$start_feishu" =~ ^[Yy]$ ]]; then
-            info "正在启动飞书监听器..."
-            cd "$INSTALL_DIR"
-            npm run feishu-listener:start
-            success "飞书监听器已在后台启动"
+fi
+
+NODE_BIN=$(command -v node)
+PLIST_LABEL="com.agent-notifier.feishu-listener"
+PLIST_FILE="$HOME/Library/LaunchAgents/${PLIST_LABEL}.plist"
+SYSTEMD_SERVICE="agent-notifier-feishu.service"
+SYSTEMD_FILE="$HOME/.config/systemd/user/$SYSTEMD_SERVICE"
+CRON_MARKER="# agent-notifier-feishu"
+
+start_service() {
+    if [[ "$OSTYPE" == darwin* ]]; then
+        # ── macOS: launchd ──
+        mkdir -p "$HOME/Library/LaunchAgents"
+        cat > "$PLIST_FILE" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${NODE_BIN}</string>
+        <string>${INSTALL_DIR}/feishu-listener.js</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${INSTALL_DIR}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${INSTALL_DIR}/feishu-listener.log</string>
+    <key>StandardErrorPath</key>
+    <string>${INSTALL_DIR}/feishu-listener.log</string>
+</dict>
+</plist>
+PLISTEOF
+        launchctl bootout "gui/$(id -u)" "$PLIST_FILE" 2>/dev/null || true
+        launchctl bootstrap "gui/$(id -u)" "$PLIST_FILE"
+        sleep 1
+        if launchctl print "gui/$(id -u)/${PLIST_LABEL}" &>/dev/null; then
+            success "飞书监听器已启动（launchd 服务，开机自启）"
         else
-            info "跳过启动飞书监听器，稍后可通过以下命令手动启动："
-            echo "  cd $INSTALL_DIR && npm run feishu-listener:start"
+            error "飞书监听器启动失败，请检查 $INSTALL_DIR/feishu-listener.log"
+        fi
+    else
+        # ── Linux: 优先 systemd，回退 crontab + nohup ──
+        export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+        if systemctl --user is-system-running &>/dev/null 2>&1; then
+            # systemd 可用
+            mkdir -p "$HOME/.config/systemd/user"
+            cat > "$SYSTEMD_FILE" <<SVCEOF
+[Unit]
+Description=Agent Notifier - Feishu Listener
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$NODE_BIN $INSTALL_DIR/feishu-listener.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target
+SVCEOF
+            systemctl --user daemon-reload
+            systemctl --user enable "$SYSTEMD_SERVICE"
+            systemctl --user restart "$SYSTEMD_SERVICE"
+            sleep 1
+            if systemctl --user is-active "$SYSTEMD_SERVICE" &>/dev/null; then
+                success "飞书监听器已启动（systemd 服务，开机自启）"
+            else
+                error "飞书监听器启动失败，请检查: journalctl --user -u $SYSTEMD_SERVICE"
+            fi
+            info "服务管理："
+            echo "  查看状态: systemctl --user status $SYSTEMD_SERVICE"
+            echo "  查看日志: journalctl --user -u $SYSTEMD_SERVICE -f"
+            echo "  重启服务: systemctl --user restart $SYSTEMD_SERVICE"
+        else
+            # systemd 不可用，回退到 crontab + nohup
+            warn "systemd 用户会话不可用，使用 crontab @reboot 回退方案"
+            cd "$INSTALL_DIR"
+            nohup "$NODE_BIN" "$INSTALL_DIR/feishu-listener.js" >> "$INSTALL_DIR/feishu-listener.log" 2>&1 &
+            echo $! > "$INSTALL_DIR/feishu-listener.pid"
+            success "飞书监听器已启动 (PID: $(cat "$INSTALL_DIR/feishu-listener.pid"))"
+
+            # 注册 crontab @reboot（幂等）
+            CRON_CMD="@reboot cd $INSTALL_DIR && $NODE_BIN $INSTALL_DIR/feishu-listener.js >> $INSTALL_DIR/feishu-listener.log 2>&1 $CRON_MARKER"
+            ( crontab -l 2>/dev/null | grep -v "$CRON_MARKER"; echo "$CRON_CMD" ) | crontab -
+            success "已注册 crontab @reboot 开机自启"
         fi
     fi
+}
+
+if [ -n "${FEISHU_APP_ID:-}" ] && [ "${FEISHU_APP_ID}" != "your_app_id_here" ]; then
+    start_service
+else
+    warn "未检测到有效的 FEISHU_APP_ID 配置"
+    warn "请编辑 .env 后重新运行 install.sh"
 fi
 
 echo ""
@@ -252,9 +354,8 @@ info "Hooks 配置: $SETTINGS_FILE"
 info "Shell 函数: $SHELL_RC"
 echo ""
 info "后续步骤："
-echo "  1. 编辑 .env 填入飞书配置"
+echo "  1. 编辑 .env 填入飞书配置（如尚未配置）"
 echo "  2. 运行 source $SHELL_RC 加载 shell 函数"
-echo "  3. 启动飞书监听器: cd $INSTALL_DIR && npm run feishu-listener:start"
-echo "  4. 使用 codex() 包装函数时，可通过 CODEX_BIN 指定可执行名"
+echo "  3. 使用 codex() 包装函数时，可通过 CODEX_BIN 指定可执行名"
 echo ""
 success "祝使用愉快！"
