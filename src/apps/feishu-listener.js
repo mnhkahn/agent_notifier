@@ -17,9 +17,13 @@ const { createFeishuClient } = require('../channels/feishu/feishu-client');
 const { createFeishuInteractionHandler } = require('../channels/feishu/feishu-interaction-handler');
 const { createCodexInputBridge } = require('../adapters/codex/cli-input-bridge');
 
+const WS_MAX_AGE_MS = parseInt(process.env.FEISHU_WS_MAX_AGE_MIN || '25', 10) * 60_000;
+const HEALTH_CHECK_INTERVAL_MS = 60_000;
+
 class FeishuListener {
     constructor() {
         this.state = new SessionState();
+        this.lastEventTime = Date.now();
 
         const appId = process.env.FEISHU_APP_ID;
         const appSecret = process.env.FEISHU_APP_SECRET;
@@ -78,9 +82,10 @@ class FeishuListener {
 
     start() {
         // Create event dispatcher — 长连接模式下所有事件注册在 EventDispatcher 中
-        const eventDispatcher = new Lark.EventDispatcher({}).register({
+        this.eventDispatcher = new Lark.EventDispatcher({}).register({
             // 卡片交互回调（按钮点击 + 输入框提交）
             'card.action.trigger': async (data) => {
+                this.lastEventTime = Date.now();
                 const result = await this.handleCardAction(data);
                 // 其他操作弹 toast
                 if (result && typeof result === 'object' && result.card) {
@@ -103,9 +108,12 @@ class FeishuListener {
         });
 
         // Start WebSocket connection
-        this.wsClient.start({ eventDispatcher });
+        this.wsClient.start({ eventDispatcher: this.eventDispatcher });
 
         console.log('[feishu-listener] 飞书监听器已启动，等待用户操作...');
+
+        // Periodic health check for WebSocket connection staleness
+        this.healthCheckInterval = setInterval(() => this.checkHealth(), HEALTH_CHECK_INTERVAL_MS);
 
         // Periodic cleanup of expired notifications
         this.cleanupInterval = setInterval(() => {
@@ -433,7 +441,37 @@ class FeishuListener {
         }
     }
 
+    checkHealth() {
+        try {
+            const info = this.wsClient.getReconnectInfo();
+            const age = Date.now() - info.lastConnectTime;
+            if (age > WS_MAX_AGE_MS) {
+                console.log(`[feishu-listener] WebSocket 连接已 ${Math.round(age / 60000)} 分钟未刷新，主动重连...`);
+                this.reconnect();
+            }
+        } catch (err) {
+            console.error('[feishu-listener] 健康检查异常:', err.message);
+        }
+    }
+
+    reconnect() {
+        try {
+            this.wsClient.close();
+        } catch (err) {
+            console.error('[feishu-listener] 关闭旧连接失败:', err.message);
+        }
+        this.wsClient = new Lark.WSClient({
+            appId: this.appId,
+            appSecret: this.appSecret,
+            loggerLevel: Lark.LoggerLevel.info,
+        });
+        this.wsClient.start({ eventDispatcher: this.eventDispatcher });
+        this.lastEventTime = Date.now();
+        console.log('[feishu-listener] WebSocket 已重新连接');
+    }
+
     stop() {
+        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
         if (this.cleanupInterval) clearInterval(this.cleanupInterval);
         console.log('[feishu-listener] 监听器已停止');
     }
