@@ -253,7 +253,8 @@ async function getFeishuAppClient() {
     const appSecret = process.env.FEISHU_APP_SECRET;
     if (!appId || !appSecret) return null;
 
-    const client = new Lark.Client({ appId, appSecret });
+    const domain = process.env.FEISHU_DOMAIN === 'lark' ? Lark.Domain.Lark : Lark.Domain.Feishu;
+    const client = new Lark.Client({ appId, appSecret, domain });
 
     let chatId = process.env.FEISHU_CHAT_ID;
     if (!chatId) {

@@ -270,6 +270,13 @@ start_service() {
     <string>${INSTALL_DIR}/feishu-listener.log</string>
     <key>StandardErrorPath</key>
     <string>${INSTALL_DIR}/feishu-listener.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>TMUX</key>
+        <string>${TMUX:-}</string>
+    </dict>
 </dict>
 </plist>
 PLISTEOF

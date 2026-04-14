@@ -35,11 +35,13 @@ class FeishuListener {
 
         this.appId = appId;
         this.appSecret = appSecret;
+        this.larkDomain = process.env.FEISHU_DOMAIN === 'lark' ? Lark.Domain.Lark : Lark.Domain.Feishu;
 
         // Create Lark API client (for future API calls like listing chats)
         this.feishuClient = createFeishuClient({
             appId: this.appId,
             appSecret: this.appSecret,
+            domain: this.larkDomain,
         });
         this.client = this.feishuClient.client;
 
@@ -104,6 +106,7 @@ class FeishuListener {
         this.wsClient = new Lark.WSClient({
             appId: this.appId,
             appSecret: this.appSecret,
+            domain: this.larkDomain,
             loggerLevel: Lark.LoggerLevel.info,
         });
 
@@ -463,6 +466,7 @@ class FeishuListener {
         this.wsClient = new Lark.WSClient({
             appId: this.appId,
             appSecret: this.appSecret,
+            domain: this.larkDomain,
             loggerLevel: Lark.LoggerLevel.info,
         });
         this.wsClient.start({ eventDispatcher: this.eventDispatcher });

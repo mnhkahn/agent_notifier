@@ -244,7 +244,8 @@ async function flushBuffer(bufferPath) {
     if (!appId || !appSecret) return;
 
     const Lark = require('@larksuiteoapi/node-sdk');
-    const client = new Lark.Client({ appId, appSecret });
+    const domain = process.env.FEISHU_DOMAIN === 'lark' ? Lark.Domain.Lark : Lark.Domain.Feishu;
+    const client = new Lark.Client({ appId, appSecret, domain });
 
     let chatId = process.env.FEISHU_CHAT_ID;
     if (!chatId) {

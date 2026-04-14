@@ -28,9 +28,27 @@ const isMac = process.platform === 'darwin';
 /** 解析 tmux 完整路径（后台进程可能缺少 Homebrew PATH） */
 const TMUX_BIN = (() => {
     try {
-        return execSync('which tmux', { encoding: 'utf8', timeout: 2000, stdio: ['pipe', 'pipe', 'pipe'] }).trim() || 'tmux';
+        const fromPath = execSync('which tmux', { encoding: 'utf8', timeout: 2000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        if (fromPath) return fromPath;
+    } catch {}
+    const candidates = isMac
+        ? ['/usr/local/bin/tmux', '/opt/homebrew/bin/tmux']
+        : ['/usr/bin/tmux', '/usr/local/bin/tmux'];
+    for (const p of candidates) {
+        try {
+            if (fs.existsSync(p)) return p;
+        } catch {}
+    }
+    return 'tmux';
+})();
+
+/** 解析 tmux socket 路径（后台进程可能没有 TMUX 环境变量） */
+const TMUX_ENV = (() => {
+    if (process.env.TMUX) return process.env.TMUX;
+    try {
+        return execSync('echo $TMUX', { encoding: 'utf8', timeout: 2000, shell: true, stdio: ['pipe', 'pipe', 'pipe'] }).trim() || undefined;
     } catch {
-        return isMac ? '/opt/homebrew/bin/tmux' : 'tmux';
+        return undefined;
     }
 })();
 
@@ -72,6 +90,17 @@ function shellQuote(str) {
  *   null — 无法解析
  */
 function resolveTarget() {
+    // 策略 0: 如果当前 shell 在 tmux 中，直接获取当前 pane（最稳定）
+    if (process.env.TMUX) {
+        try {
+            const currentPane = execSync(
+                `${TMUX_BIN} display-message -p '#{session_name}:#{window_index}.#{pane_index}'`,
+                { encoding: 'utf8', timeout: 2000, stdio: ['pipe', 'pipe', 'pipe'] }
+            ).trim();
+            if (currentPane) return { type: 'tmux', target: currentPane };
+        } catch {}
+    }
+
     // 策略 1: 显式环境变量
     const explicit = process.env.CLAUDE_TMUX_TARGET;
     if (explicit) return { type: 'tmux', target: explicit };
@@ -265,6 +294,18 @@ async function injectKeys(target, keys) {
             if (tmuxTarget) {
                 return injectViaTmux(tmuxTarget, keys);
             }
+            // 兜底：如果当前环境在 tmux 中，尝试注入当前 active pane
+            if (process.env.TMUX) {
+                try {
+                    const currentPane = execSync(
+                        `${TMUX_BIN} display-message -p '#{session_name}:#{window_index}.#{pane_index}'`,
+                        { encoding: 'utf8', timeout: 2000, stdio: ['pipe', 'pipe', 'pipe'] }
+                    ).trim();
+                    if (currentPane) {
+                        return injectViaTmux(currentPane, keys);
+                    }
+                } catch {}
+            }
             throw new Error(`无法注入终端。请在 tmux 中启动 Claude Code，或使用 pty-relay.py 建立终端桥接。具体错误: ${tiocErr.message}`);
         }
     }
@@ -290,18 +331,30 @@ function injectViaFifo(fifoPath, keys) {
  * 通过 tmux send-keys 注入
  */
 function injectViaTmux(target, keys) {
-    // 逐字符处理特殊键
+    // 把按键序列映射为 tmux send-keys 能识别的键名
     const parts = [];
-    for (const ch of keys) {
+    let i = 0;
+    while (i < keys.length) {
+        // ANSI 方向键序列 (3 字节)
+        const seq3 = keys.slice(i, i + 3);
+        if (seq3 === '\x1b[A') { parts.push('Up'); i += 3; continue; }
+        if (seq3 === '\x1b[B') { parts.push('Down'); i += 3; continue; }
+        if (seq3 === '\x1b[C') { parts.push('Right'); i += 3; continue; }
+        if (seq3 === '\x1b[D') { parts.push('Left'); i += 3; continue; }
+
+        const ch = keys[i];
         if (ch === '\n' || ch === '\r') parts.push('Enter');
         else if (ch === '\x1b') parts.push('Escape');
         else if (ch === '\t') parts.push('Tab');
+        else if (ch === ' ') parts.push('Space');
         else parts.push(shellQuote(ch));
+        i += 1;
     }
 
     const cmd = `${TMUX_BIN} send-keys -t ${shellQuote(target)} ${parts.join(' ')}`;
     try {
-        execSync(cmd, { timeout: 5000, stdio: 'pipe' });
+        const env = TMUX_ENV ? { ...process.env, TMUX: TMUX_ENV } : process.env;
+        execSync(cmd, { timeout: 5000, stdio: 'pipe', env });
         return true;
     } catch (err) {
         throw new Error(`tmux send-keys failed: ${err.message}`);
