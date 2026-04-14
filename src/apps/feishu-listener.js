@@ -349,6 +349,7 @@ class FeishuListener {
             });
             qResponses['opt_other'] = { keys: ARROW_DOWN.repeat(otherIdx) + '\n', label: 'Other' };
             qResponses['_other_num'] = { keys: ARROW_DOWN.repeat(otherIdx) + '\n', label: '_meta' };
+            qResponses['interrupt'] = { keys: '\x1b', label: '⛔ Interrupt' };
 
             // 保存 state（沿用多问题元数据）
             this.state.addNotification(newStateKey, {
@@ -381,6 +382,8 @@ class FeishuListener {
                         })),
                         { tag: 'button', text: { tag: 'plain_text', content: '💬 Other' }, type: 'default',
                           value: { action_type: 'opt_other', session_state_key: newStateKey } },
+                        { tag: 'button', text: { tag: 'plain_text', content: '⛔ ESC' }, type: 'danger', size: 'small',
+                          value: { action_type: 'interrupt', session_state_key: newStateKey } },
                     ]},
                     { tag: 'action', actions: [{
                         tag: 'input', name: 'user_input',
@@ -410,7 +413,7 @@ class FeishuListener {
                 notification_type: notification.notification_type,
                 pts_device: notification.pts_device,
                 created_at: Date.now(),
-                responses: { 'allow': { keys: '\n', label: '已提交' }, 'deny': { keys: '\x1b', label: '已取消' } },
+                responses: { 'allow': { keys: '\n', label: '已提交' }, 'deny': { keys: '\x1b', label: '已取消' }, 'interrupt': { keys: '\x1b', label: '⛔ Interrupt' } },
             });
 
             const confirmCard = {
@@ -423,6 +426,8 @@ class FeishuListener {
                           value: { action_type: 'allow', session_state_key: confirmKey } },
                         { tag: 'button', text: { tag: 'plain_text', content: '❌ 取消' }, type: 'danger',
                           value: { action_type: 'deny', session_state_key: confirmKey } },
+                        { tag: 'button', text: { tag: 'plain_text', content: '⛔ ESC' }, type: 'danger', size: 'small',
+                          value: { action_type: 'interrupt', session_state_key: confirmKey } },
                     ]},
                     { tag: 'hr' },
                     { tag: 'markdown', content: noteParts },

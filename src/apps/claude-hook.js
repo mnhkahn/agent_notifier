@@ -167,15 +167,13 @@ function buildInputRow(stateKey) {
             value: { action_type: 'text_input', session_state_key: stateKey },
         },
     ];
-    if (process.env.ENABLE_ESC_BUTTON === 'true') {
-        actions.push({
-            tag: 'button',
-            text: { tag: 'plain_text', content: 'esc' },
-            type: 'danger',
-            size: 'small',
-            value: { action_type: 'esc', session_state_key: stateKey },
-        });
-    }
+    actions.push({
+        tag: 'button',
+        text: { tag: 'plain_text', content: '⛔ ESC' },
+        type: 'danger',
+        size: 'small',
+        value: { action_type: 'interrupt', session_state_key: stateKey },
+    });
     return { tag: 'action', actions };
 }
 
@@ -305,6 +303,7 @@ async function sendFeishuAppCard(data, event, stats) {
         created_at: Date.now(),
         responses: {
             'esc': { keys: '\x1b', label: 'Esc' },
+            'interrupt': { keys: '\x1b', label: '⛔ Interrupt' },
         },
     });
 
@@ -540,6 +539,7 @@ async function sendFeishuInteractiveCard(data, stats) {
         // Resolve pts device and store notification state
         const ptsDevice = resolvePtsDevice(process.ppid);
         responses['esc'] = { keys: '\x1b', label: 'Esc' };
+        responses['interrupt'] = { keys: '\x1b', label: '⛔ Interrupt' };
         sessionState.addNotification(stateKey, {
             session_id: sessionId,
             notification_type: type,

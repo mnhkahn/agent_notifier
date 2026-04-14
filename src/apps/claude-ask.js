@@ -173,6 +173,13 @@ async function sendSingleSelectCard(app, q, stateKey, ptsDevice, sessionId, noti
         type: 'default',
         value: { action_type: 'opt_other', session_state_key: stateKey },
     });
+    optionButtons.push({
+        tag: 'button',
+        text: { tag: 'plain_text', content: '⛔ ESC' },
+        type: 'danger',
+        size: 'small',
+        value: { action_type: 'interrupt', session_state_key: stateKey },
+    });
     elements.push({ tag: 'action', actions: optionButtons });
 
     // Text input for custom answer
@@ -208,6 +215,7 @@ async function sendSingleSelectCard(app, q, stateKey, ptsDevice, sessionId, noti
     responses['opt_other'] = { keys: ARROW_DOWN.repeat(otherIdx) + '\r', label: 'Other' };
     responses['_other_num'] = { keys: ARROW_DOWN.repeat(otherIdx) + '\r', label: '_meta' };
     responses['esc'] = { keys: '\x1b', label: 'Esc' };
+    responses['interrupt'] = { keys: '\x1b', label: '⛔ Interrupt' };
 
     try {
         await app.client.im.message.create({
@@ -243,6 +251,7 @@ async function sendMultiQuestionFirstCard(app, questions, stateKey, ptsDevice, s
     });
     qResponses['opt_other'] = { keys: ARROW_DOWN.repeat(otherIdx) + '\r', label: 'Other' };
     qResponses['_other_num'] = { keys: ARROW_DOWN.repeat(otherIdx) + '\r', label: '_meta' };
+    qResponses['interrupt'] = { keys: '\x1b', label: '⛔ Interrupt' };
 
     // Store all questions for listener
     sessionState.addNotification(stateKey, {
@@ -275,6 +284,8 @@ async function sendMultiQuestionFirstCard(app, questions, stateKey, ptsDevice, s
             })),
             { tag: 'button', text: { tag: 'plain_text', content: '💬 Other' }, type: 'default',
               value: { action_type: 'opt_other', session_state_key: stateKey } },
+            { tag: 'button', text: { tag: 'plain_text', content: '⛔ ESC' }, type: 'danger', size: 'small',
+              value: { action_type: 'interrupt', session_state_key: stateKey } },
         ]},
         { tag: 'action', actions: [{
             tag: 'input', name: 'user_input',
